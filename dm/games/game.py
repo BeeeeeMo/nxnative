@@ -136,6 +136,7 @@ def header(g):
          f'#define DM_GAME_NVN_SAMP_BASE {g.int("nvn_samp_base"):#x}',
          f'#define DM_GAME_NVN_IMG_BASE {g.int("nvn_img_base"):#x}',
          f'#define DM_GAME_NVN_IMG_SLOTS {g.int("nvn_img_slots")}',
+         *([f'#define DM_GAME_NVN_SEPTEX_BASE {g.int("nvn_septex_base"):#x}', f'#define DM_GAME_NVN_SEPTEX_SLOTS {g.int("nvn_septex_slots")}'] if g.get('nvn_septex_base', '') else []),   # a separate texture table of its own (Monster Hunter Rise)
          f'#define DM_GAME_DISPLAY_VERSIONS {vers}',
          f'#define DM_GAME_PRESENT_DISPLAY {int(pi == "display")}',
          f'#define DM_GAME_CORE_PREEMPT {int(cp == "on")}',

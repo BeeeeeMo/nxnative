@@ -12,7 +12,7 @@ The README covers packing and playing. This page is for working on nxnative itse
 | Audio | Games that carry the SDK's audio renderer (Mario) run it in-process; games that use AudioOut directly (Engage: Wwise) feed it straight. Output goes through Core Audio (default on iOS, `DM_AUDIO=1` on the Mac) |
 | Input | iOS: the touch gamepad and physical controllers. Mac: scripted input (`DM_KEYS=<seconds>:<button>,…`, with `DM_KBD=<text>` answering the system keyboard) or `DM_WINDOW=1` for a window with keyboard input |
 | iOS app | One unsigned IPA for iPhone and iPad. The rewritten code is embedded in the executable; the shader libraries, the RomFS and the game icon are inside the app |
-| Known gaps | Conditional render is always drawn; sparse virtual-pool mappings; `MultiDraw*IndirectCount`. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. The bundled prewarm lists are empty. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
+| Known gaps | Conditional render is always drawn; `MultiDraw*IndirectCount` waits on the CPU for the GPU-written count; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. The bundled prewarm lists are empty. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
 
 ## The packing script in detail
 
@@ -233,6 +233,14 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **CPU:** Hagi polls with `SleepThread(100 ns)`, which the host used to return from at once: one thread kept a core at 100%. Sleeps under 20 µs now count as yields and get the yield back-off ([03](agents/03-bringup.md)).
 - **Not yet:** GX points and lines (the geometry shaders), sampler LOD bias (GX uses it; Metal samplers have none, red line). The base NSP in hand was damaged (147 MB zeroed near its end: the two WebM prologue movies, which the storybook prologue does not use); it was packed with `--allow-damaged`.
 - **Mac input:** from a fresh save, `DM_KEYS="f1500:A,f1950:T0.373x0.70,f2300:A,f2700:A,f3200:A,f3600:LRight,f3800:A,f4200:T0.247x0.426,f4500:A,f4800:LRight,f5000:A,f5400:T0.659x0.366,f5800:A,f6200:LRight,f6400:A,f7000:A,f8000:A,f9000:A,f10000:A,f11000:A"` creates file 1 (Mario icon, Regular Mode) and plays the storybook prologue into the Star Festival (about frame 12,000). Screenshots of the handheld picture need `DM_NVN_SHOT_OUT=1280x720` (the raw swapchain image is 1920x1080 with the picture in its top-left 1280x720).
+
+**Monster Hunter Rise (`0100B04011742000`)**
+- **Engine:** Capcom's RE Engine, SDK 11.4.3, update 16.0.2 (v2228224, Sunbreak). The base game is an XCI (cartridge dump; nx_extract reads its secure partition), the update an NSP, and its 252 DLC NSPs are licences only. `main` has 125 MB of text: the rewriter puts its patch area right before the base (`BIG_TEXT`, a second pass with `DM_PATCH_FRONT`).
+- **Files and shaders:** everything sits in KPKA PAK archives, later patch PAKs overriding earlier ones by path hash. The 63,111 shaders are in SDF files (`shader_split.py` `kpka_jobs`), with combined and separate texture tables at once (profile key `nvn_septex_base`).
+- **GPU heap:** one 64 GB sparse virtual pool built from 4 MB physical pools. The host aliases mapped pages (`vm_remap`) and keeps a 4 KB page table the replay reads textures through (streamed textures 32 GB in, mip tails at 4 KB offsets). The scene is GPU-driven (`MultiDrawElementsIndirectCount`).
+- **Keyboard:** the hunter, Palamute and Palico are named through the inline keyboard (`DM_KBD` on the Mac, the input box on the iPhone); the name is masked through `ngc::ProfanityFilter`'s vtable, which the host fills.
+- **Frame rate:** 30 fps, as on the Switch. On the Mac (M4 Pro) the title screen takes about 17 ms of GPU per frame docked.
+- **Mac input:** a fresh save (with the first-boot notices accepted) reaches character creation with `DM_KEYS="f4100:A~0.3,f6300:A~0.3,f7000:A~0.3,f7600:A~0.3"`. With `DM_KBD=Hunter`, `DM_KEYS="f4100:A~0.3,f6300:A~0.3,f7000:A~0.3,f7600:A~0.3,f8000:A~0.3,f8150:Down~0.25*6/40,f8450:A~0.3,f8650:A~0.3,f8900:A~0.3,f9100:A~0.3,f9500:A~0.3,f9800:Down~0.25*9/40,f10250:A~0.3,f10450:A~0.3,f10700:A~0.3,f10950:A~0.3,f11300:A~0.3,f11800:Down~0.25*10/40,f12250:A~0.3,f12450:A~0.3,f12700:A~0.3,f12950:A~0.3,f13300:A~0.3,f16000:A~0.3,f16300:A~0.3"` goes on through creation (hunter, Palamute, Palico, each named) and saves to slot 1. Holds under 0.25 s are not seen, and 0.5 s repeats in lists. From a save made that way, `f4100:A~0.3,f6300:A~0.3,f6800:A~0.3,f7100:A~0.3,f7500:A~0.3` continues into the opening.
 
 ## Tools (`dm/tools`)
 
