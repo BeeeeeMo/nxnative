@@ -923,3 +923,13 @@ void hle_signal_system_event(void *ev) {   // An unbound one is bound on the spo
         hle_bind_system_event(ev, 0);   // guest code (SVCs take G): outside the lock
     }
 }
+void hle_clear_system_event(void *ev) {   // Clear a bound service-layer SystemEvent (any thread), as the service does when its condition ends; an unbound one has nothing to clear
+    pthread_mutex_lock(&G);
+    pthread_mutex_lock(&g_se_lock); uint32_t wh = se_find(ev); pthread_mutex_unlock(&g_se_lock);
+    if (wh) {
+        event_t *e = h_get(wh, O_EVENT_W);
+        if (!e) die("SystemEvent write-end handle invalid %#x", wh);
+        e->signaled = 0;
+    }
+    pthread_mutex_unlock(&G);
+}
