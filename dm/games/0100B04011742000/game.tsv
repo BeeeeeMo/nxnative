@@ -34,6 +34,10 @@ graphics	nvn
 # from guest memory (without these keys the cursor highlight composited black on black and the menus looked frozen)
 tex_flush_upload	on
 tex_dirty_upload	on
+# 60 fps (30 on the Switch): the host raises RE Engine's frame limit from 30 to 60 (hle_fpslock.c, FPSLocker's address for this build); the game still asks for present interval 2,
+# which display mode ignores. The game steps by the time that really passed. DM_FPS_TARGET=30 (Documents/env.txt on the iPhone) keeps 30 and saves power
+fps_target	60
+present_interval	display
 
 # ---- Memory ----
 # The NPDM declares no system resource, so there is no virtual address memory: the game sizes its heap as pool − used memory with SetHeapSize. 4 GB block: 256 MB alias, 256 MB stacks, 3.25 GB heap region
