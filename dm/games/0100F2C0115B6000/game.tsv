@@ -40,6 +40,9 @@ app_pool	0xCD500000
 tex_flush_upload	on
 render_cond	on
 tex_dirty_upload	on
+# The game steps by the measured frame time capped at 60 fps (rewriter stubs at FPSLocker's sites, patch_nso.py FRAME_STEP_BUILD); the Switch runs it at 30.
+# Mac M4 Pro: 60 presents a second in the opening cave, game time = real time. DM_FPS_TARGET=30 (Documents/env.txt on the iPhone) saves power, 0 = the game's own step
+fps_target	60
 
 # ---- NVN driver constant segments (Breath of the Wild's values, the same NVN build) ----
 nvn_tex_base	0x20

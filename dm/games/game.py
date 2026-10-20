@@ -94,6 +94,8 @@ def header(g):
     vers = ', '.join('{' + q(b['main']) + ', ' + q(b['display']) + '}' for b in g.builds().values() if 'main' in b)
     pi = g.get('present_interval', 'game')   # present interval: game = as the game sets it (as on the Switch), display = one frame per display tick
     if pi not in ('game', 'display'): sys.exit(f'{g.id}: present_interval must be game or display: {pi}')
+    ft = g.get('fps_target', '0')   # frame rate cap of the rewriter's elapsed-time frame step (patch_nso.py FRAME_STEP_BUILD: Tears of the Kingdom 1.4.3): 0 = the game's own step, 30 / 60
+    if ft not in ('0', '30', '60'): sys.exit(f'{g.id}: fps_target must be 0, 30 or 60: {ft}')
     cp = g.get('core_preempt', 'off')   # same-core preemption approximation (hle_thread.c): on / off
     if cp not in ('on', 'off'): sys.exit(f'{g.id}: core_preempt must be on or off: {cp}')
     sf = g.get('shared_font', 'bfttf')   # what the shared-font address points at (hle_sdk16.c): bfttf = 8-byte header + TTF, ttf = the TTF alone
@@ -140,6 +142,7 @@ def header(g):
          f'#define DM_GAME_DISPLAY_VERSIONS {vers}',
          f'#define DM_GAME_PRESENT_DISPLAY {int(pi == "display")}',
          f'#define DM_GAME_CORE_PREEMPT {int(cp == "on")}',
+         f'#define DM_GAME_FPS_TARGET {int(ft)}',
          f'#define DM_GAME_SHARED_FONT_TTF {int(sf == "ttf")}',
          f'#define DM_GAME_PAD_FULL {int(pl == "full")}',
          f'#define DM_GAME_OPMODE {int(om == "console")}',
