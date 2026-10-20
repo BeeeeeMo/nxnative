@@ -1034,18 +1034,19 @@ for oa, wa, ob_, wb, r, key, why in params:
     emit(STUR(tmp, 31, -16)); emit(MRS_TPIDRRO(r)); emit_slot_addr(r, tmp, key); emit(LDRX(r, r)); emit(LDUR(tmp, 31, -16)); emit(B(here(), oa + 4))
     struct.pack_into('<I', IMG, oa, B(oa, start)); struct.pack_into('<I', IMG, ob_, NOP); stat('param')
 
-# ---- Frame step by elapsed time (The Legend of Zelda: Tears of the Kingdom 1.4.3 main, host only) ----
-# TOTK picks a present interval each frame (main+0x2db174: 2 = 30 fps, 3 under load) and steps its game time by 60 / fps (int fps at timing +0x50, read at main+0x2daa54 and
-# main+0x3e562c). With the stub the step is the measured frame time instead (timing frame +0xd8, 19.2 MHz ticks), clamped to [1 / cap, 1 / 15 s]; game time that ran ahead after a
-# short frame (the "lead", at most 0.25 s) is paid back by later frames, so a cap above the real rate does not speed the game up. The float fps goes to timing +0x24 (unused, per
-# masagrator's FPSLocker config for this build, which found the sites; totk-mobile added the lead), the consumers read it, prerendered movies keep a 30 cap (flag set and cleared
-# around main+0x2b36100 / main+0x2b33918), the D-pad menu fade starts at full rate (FPSLocker's fix at main+0x1fbc80) and the swapchain argument at main+0xbe14a8 becomes 1 as in FPSLocker.
+# ---- Frame step in whole vsyncs (The Legend of Zelda: Tears of the Kingdom 1.4.3 and Breath of the Wild 1.9.0 main, host only) ----
+# Both games step their game time by a whole number of vsyncs (1/60 s) per frame that their own interval logic picks. With the stubs the host picks it (hle_nvn.c fstep_tick,
+# nvn_fstep.h): the step is the number of vsyncs the host keeps the frame on screen (1 = 60 fps, 2 = 30 when 60 does not hold), plus one while the game is behind real time after
+# a late frame, so motion is even and game time = real time. The steps stay values the games' own logic uses (1 to 3).
 # State page = the page after the key page (zero in the file, read-write in both loaders): +0 float target fps written by the loader (fps_target, DM_FPS_TARGET; 0 = every stub
-# runs the original instructions), +4 movie flag, +8 double lead, +0x10 float render scale (below), +0x18 double game seconds stepped (logged by the host to check the game's speed).
-# Stub bodies assembled with clang
-FRAME_STEP_BUILD = '277178b7dba1b6d4949a84778d4abc58'
+# runs the original instructions), +4 TOTK movie flag, +8 double lead (TOTK legacy), +0x10 float render scale (TOTK, below), +0x18 double game seconds (TOTK legacy),
+# +0x20 u32 step in vsyncs (host; 0 = not decided yet), +0x24 u32 a step the game fixes itself (BotW's VFR override; 0 = none), +0x28 u32 mode (loader: 0 = whole vsyncs, 1 = legacy),
+# +0x30 u64 vsyncs stepped (the stubs; logged by the host to check the game's speed). Legacy (DM_FRAME_STEP=legacy, profile frame_step) is each game's earlier method, kept for
+# the iPhone A/B test: TOTK's elapsed-time step (below); for BotW the loader writes target 0 (its own interval controller with the 60 fps cuts above). The value per build is
+# whether legacy keeps the state page on (fixups FPS_LEGACY_ELAPSED). Stub bodies assembled with clang
+FRAME_STEP = {'277178b7dba1b6d4949a84778d4abc58': 1, 'cd57b23fa4bbad65803d9788c01821ee': 0}
 FS_STATE_OFF = 0
-if BUILD_ID == FRAME_STEP_BUILD and NAME == 'main':
+if BUILD_ID in FRAME_STEP and NAME == 'main':
     FS_STATE_OFF = KEY_PAGE_OFF + 0x4000
     assert not FAR and FS_STATE_OFF % 0x1000 == 0 and FS_STATE_OFF + 0x40 <= PATCH_OFF and not any(IMG[FS_STATE_OFF:]), 'frame step state page'
     def fs_site(off, orig):
@@ -1057,13 +1058,36 @@ if BUILD_ID == FRAME_STEP_BUILD and NAME == 'main':
         old = bytes(IMG[off:off + 4 * len(words)])
         for i, w in enumerate(words): struct.pack_into('<I', IMG, off + 4 * i, w)
         cuts.append((off, old.hex(), bytes(IMG[off:off + 4 * len(words)]).hex(), why, 'host-only')); stat('frame_step')
+# Tears of the Kingdom picks a present interval each frame (main+0x2db174: 2 = 30 fps, 3 under load) and steps its game time by 60 / fps (int fps at timing +0x50, read at main+0x2daa54
+# and main+0x3e562c). The stub replaces that logic: int fps = 60 / step, and the float fps (timing +0x24, unused, per masagrator's FPSLocker config for this build, which found the
+# sites) the same, which the consumers read. Legacy: the step is the measured frame time (timing frame +0xd8, 19.2 MHz ticks), clamped to [1 / cap, 1 / 15 s]; game time that ran
+# ahead after a short frame (the "lead", at most 0.25 s; totk-mobile) is paid back by later frames. Prerendered movies set a 30 cap (flag set and cleared around main+0x2b36100 /
+# main+0x2b33918), the D-pad menu fade starts at full rate (FPSLocker's fix at main+0x1fbc80) and the swapchain argument at main+0xbe14a8 becomes 1 as in FPSLocker
+if FS_STATE_OFF and BUILD_ID == '277178b7dba1b6d4949a84778d4abc58':
     # frame step (replaces ldrb w9,[x0,#0x58], the first instruction after the prologue)
     fs_site(0x2db18c, '09604139')
     start = here(); emit(ADRP(16, here(), FS_STATE_OFF))
     for w in (0xbd400200,   # ldr s0,[x16]           target fps
               0x1e202008,   # fcmp s0,#0.0
-              0x54000480,   # b.eq off (+36)        target 0: original path
-              0xf9406c22,   # ldr x2,[x1,#0xd8]      last frame time in 19.2 MHz ticks
+              0x54000680,   # b.eq off (+52)        target 0: original path
+              0xb9402a02,   # ldr w2,[x16,#0x28]     mode
+              0x350001e2,   # cbnz w2,elapsed (+15)  legacy
+              0xb9402202,   # ldr w2,[x16,#0x20]     step in vsyncs
+              0x340001a2,   # cbz w2,elapsed (+13)   not decided yet
+              0x1e230041,   # ucvtf s1,w2
+              0x1e27d003,   # fmov s3,#30.0
+              0x1e211872,   # fdiv s18,s3,s1
+              0x1e322a52,   # fadd s18,s18,s18       fps = 60 / step
+              0xbd002412,   # str s18,[x0,#0x24]     float fps
+              0x52800785,   # mov w5,#60
+              0x1ac208a5,   # udiv w5,w5,w2
+              0xb9005005,   # str w5,[x0,#0x50]      integer fps
+              0xf9401a04,   # ldr x4,[x16,#0x30]
+              0x8b224084,   # add x4,x4,w2,uxtw
+              0xf9001a04):  # str x4,[x16,#0x30]     vsyncs stepped
+        emit(w)
+    emit(B(here(), 0x2db284))                                       # the original epilogue
+    for w in (0xf9406c22,   # elapsed: ldr x2,[x1,#0xd8]  last frame time in 19.2 MHz ticks
               0x9e630041,   # ucvtf d1,x2
               0x529f0003,   # mov w3,#0xf800
               0x72a02483,   # movk w3,#0x124,lsl #16 (19,200,000)
@@ -1100,7 +1124,7 @@ if BUILD_ID == FRAME_STEP_BUILD and NAME == 'main':
         emit(w)
     emit(B(here(), 0x2db284))                                       # the original epilogue
     emit(0x39416009); emit(B(here(), 0x2db190))                     # off: ldrb w9,[x0,#0x58]; back
-    fs_put(0x2db18c, [B(0x2db18c, start)], 'frame step by elapsed time (state page target fps; 0 = original interval logic)')
+    fs_put(0x2db18c, [B(0x2db18c, start)], 'frame step from the host in whole vsyncs, legacy by elapsed time (state page target fps; 0 = original interval logic)')
     # the two readers of the integer fps: float fps when on; the scvtf a few instructions later moves into the stub (s0 is not touched in between)
     for site, cvt, r in ((0x2daa54, 0x2daa6c, 19), (0x3e562c, 0x3e5638, 22)):
         fs_site(site, struct.pack('<I', 0xbd425000 | r << 5).hex()); fs_site(cvt, '00d8215e')
@@ -1170,6 +1194,50 @@ if BUILD_ID == FRAME_STEP_BUILD and NAME == 'main':
         emit(w)
     emit(B(here(), 0xd5d84))
     fs_put(0xd5d80, [B(0xd5d80, start)], 'dynamic resolution only at render scale 1.0')
+# Breath of the Wild: the framework's interval controller (the 60 fps cuts above) hands its interval to setWaitVsyncInterval (main+0x11269b8), which the main loop calls once a frame
+# (main+0x11267c0); the framework keeps it at fw+0x244 (getter vtable +0x138, read by both callers of VFR::updateInterval and directly in 43 places) and passes it on to
+# nvnWindowSetPresentInterval. The stub at the setter's entry replaces it with the host's step, read once a frame: ksys::VFR::updateInterval (main+0x151d3d0, x0 = the VFR at
+# [main+0x1e93890]; called from GameScene::calc and the per-frame delegate main+0x1280f80) takes the framework's interval in the next frame (ratio = step / 2, base interval 2, and the
+# int interval that 16 pieces of logic read), so the time step and everything else that reads the interval agree. The step is not written into the VFR call itself: the game presents
+# on its own thread, so the host's step can change between the two VFR calls of a frame. The VFR's own override (+0x29 flag, +0x2c interval: 2 at main+0xc3b588 and main+0xc5ebf8,
+# 1 at main+0xc609d8, set and cleared by game scenes) wins in the VFR:
+# a stub there publishes it at state +0x24 so the host holds frames that long, and the setter stub leaves the framework's interval to the game while it is set. x16 / x17 are free
+# at both entries
+if FS_STATE_OFF and BUILD_ID == 'cd57b23fa4bbad65803d9788c01821ee':
+    fs_site(0x11269b8, 'fd7bbea9'); fs_site(0x151d3d0, 'fd7bbea9')
+    start = here(); emit(ADRP(16, here(), FS_STATE_OFF))
+    for w in (0xb9400211,   # ldr w17,[x16]          target fps (0 = off)
+              0x340001d1,   # cbz w17,orig (+14)
+              0xb9402a11,   # ldr w17,[x16,#0x28]    mode
+              0x35000191):  # cbnz w17,orig (+12)    legacy
+        emit(w)
+    emit(ADRP(17, here(), 0x1e93890)); emit(LDRX(17, 17, 0x890 // 8))   # the VFR
+    for w in (0xb4000131,   # cbz x17,orig (+9)
+              0x3940a631,   # ldrb w17,[x17,#0x29]   the VFR's override
+              0x350000f1,   # cbnz w17,orig (+7)     the framework keeps the game's interval
+              0xb9402211,   # ldr w17,[x16,#0x20]    step in vsyncs
+              0x340000b1,   # cbz w17,orig (+5)      not decided yet
+              0x2a1103e1,   # mov w1,w17
+              0xf9401a11,   # ldr x17,[x16,#0x30]
+              0x8b214231,   # add x17,x17,w1,uxtw
+              0xf9001a11,   # str x17,[x16,#0x30]    vsyncs stepped
+              0xa9be7bfd):  # orig: stp x29,x30,[sp,#-0x20]!
+        emit(w)
+    emit(B(here(), 0x11269bc))
+    fs_put(0x11269b8, [B(0x11269b8, start)], 'setWaitVsyncInterval: the host\'s step unless the VFR override is set (state page target fps; 0 = the game\'s interval)')
+    start = here(); emit(ADRP(16, here(), FS_STATE_OFF))
+    for w in (0xb9400211,   # ldr w17,[x16]          target fps (0 = off)
+              0x340000f1,   # cbz w17,orig (+7)
+              0xb9402a11,   # ldr w17,[x16,#0x28]    mode
+              0x350000b1,   # cbnz w17,orig (+5)     legacy
+              0x3940a411,   # ldrb w17,[x0,#0x29]    the VFR's override
+              0x34000051,   # cbz w17,pub (+2)       none: 0
+              0xb9402c11,   # ldr w17,[x0,#0x2c]
+              0xb9002611,   # pub: str w17,[x16,#0x24]  the game's own step: the host holds frames that long
+              0xa9be7bfd):  # orig: stp x29,x30,[sp,#-0x20]!
+        emit(w)
+    emit(B(here(), 0x151d3d4))
+    fs_put(0x151d3d0, [B(0x151d3d0, start)], 'VFR::updateInterval: its own override published for the host (state page target fps; 0 = original)')
 
 # The three existing native rule trampolines all use only the dead temporary w8 that is overwritten afterwards, and do not change the w0/stat return, sp or NZCV.
 # 6c6290 is after the original mode3 gate; the Blaze / reference count and data invalidation 6c62dc branches before it and the state update after it are untouched.
@@ -1236,7 +1304,7 @@ with open(P('fixups.tsv'), 'w') as f:
     f.write(f'# PATCH_OFF\t{PATCH_OFF:#x}\n# KEY_PAGE_OFF\t{KEY_PAGE_OFF:#x}\n# KEY_PAGE_SIZE\t0x4000\n# TEXT_END\t{TEXT_END:#x}\n# RO_OFF\t{RO_OFF:#x}\n# DATA_OFF\t{DATA_OFF:#x}\n')
     if FAR: f.write(f'# IMAGE_SIZE\t{IMAGE_SIZE:#x}\n# FILE_IMAGE_LEN\t{FILE_IMAGE_LEN:#x}\n')   # patch area before the base (negative PATCH_OFF): whole image size, length of the image part of the file
     for k in KEY_INDEX: f.write(f'# KEY_{k}_IDX\t{KEY_INDEX[k]}\n')
-    if FS_STATE_OFF: f.write(f'# FPS_STATE_OFF\t{FS_STATE_OFF:#x}\n')   # frame step state page (FRAME_STEP_BUILD): the loader writes the target fps there
+    if FS_STATE_OFF: f.write(f'# FPS_STATE_OFF\t{FS_STATE_OFF:#x}\n# FPS_LEGACY_ELAPSED\t{FRAME_STEP[BUILD_ID]:#x}\n')   # frame step state page (FRAME_STEP): the loader writes the target fps and the mode there
     f.write(f'# BUILD_ID\t{BUILD_ID}\n')   # the host identifies the build by it: features with hard-coded addresses only run on the build they belong to
 with open(P('gates.tsv'), 'w') as f:
     for ret, k, arg, orig in gates: f.write(f'{ret:#x}\t{k}\t{arg}\t{orig:#x}\n')
