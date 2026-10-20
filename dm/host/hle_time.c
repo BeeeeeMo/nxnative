@@ -49,6 +49,13 @@ HLE_FORCE("_ZN2nn4time19StandardSteadyClock19GetCurrentTimePointEPNS0_20SteadyCl
 HLE_FORCE("_ZN2nn4time23StandardUserSystemClock14GetCurrentTimeEPNS0_9PosixTimeE", "user clock → host time()", Result, h_time_GetCurrentTime, int64_t *out) {
     int64_t ft = fixed_time(); *out = ft >= 0 ? ft : time(NULL); return RES_OK;
 }
+// The native adjustable clock needs a Horizon clock context, which the host's
+// Initialize takeover never creates. Follow the same host-clock policy as the
+// standard user clock: adjustment is unnecessary, and reads honor DM_FIXED_TIME.
+// This does not set the host clock or emulate Horizon's clock-correction state.
+HLE_FORCE("_ZN2nn4time25AdjustableUserSystemClock6AdjustEv", "adjustable user clock already follows the host system clock", void, h_time_AdjustUser, void) {}
+HLE_FORCE("_ZN2nn4time25AdjustableUserSystemClock14GetCurrentTimeEPNS0_9PosixTimeE", "adjustable user clock uses the same host time as the standard user clock", Result, h_time_GetAdjustable, int64_t *out) { return h_time_GetCurrentTime(out); }
+
 // Forced Terror Zone for stages 6–10 of the boss rush (set by dm_bossrush.c): when g_dm_tz_time is non-zero and not expired, only the clock reads at the "Terror Zone" sites get it; save timestamps and all other calls are unchanged.
 // Which sites: the return point falls in the cluster starting at the zone function 0x58f1e0 (0x58f1e0–0x591440), or the zone schedule 0x58f310 is called within 8 instructions after the return (server side 0x636b38 applying the zone, 0x694b48 and so on, 9 sites).
 // Expiry: dm_bossrush renews it by 1 second every tick; once this run stops ticking (exit / crash) it no longer applies, and the next run gets the real clock when the game is created.
