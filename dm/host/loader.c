@@ -192,7 +192,8 @@ static void install_fps_state(module_t *m) {
     if (legacy && !m->fps_legacy_elapsed) t = 0;
     float f = (float)t; dm_fps_state = m->base + m->fps_state_off; memcpy(dm_fps_state, &f, sizeof f);
     uint32_t mode = (uint32_t)legacy; memcpy(dm_fps_state + 0x28, &mode, sizeof mode);
-    // Render scale of the 3D views (the stub at main+0xd5cc0): 1.0 keeps the game's own size and dynamic resolution; another factor fixes the size at that fraction (DM_RENDER_SCALE, 0.5 to 1.0)
+    // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880): 1.0 keeps the game's own size and dynamic resolution;
+    // another factor fixes the size at that fraction (DM_RENDER_SCALE, 0.5 to 1.0). Independent of the frame step: written in legacy mode and at target 0 too
     const char *rs = getenv("DM_RENDER_SCALE"); float sc = 1.0f;
     if (rs) { char *end; sc = strtof(rs, &end); if (end == rs || *end || !(sc >= 0.5f && sc <= 1.0f)) { LOG("[RED] DM_RENDER_SCALE=%s: must be 0.5 to 1.0; keeping the game's size", rs); sc = 1.0f; } else LOG("%s: 3D views rendered at %.2f of the game's size (DM_RENDER_SCALE)", m->name, sc); }
     memcpy(dm_fps_state + 0x10, &sc, sizeof sc);

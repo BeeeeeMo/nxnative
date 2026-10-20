@@ -1238,6 +1238,34 @@ if FS_STATE_OFF and BUILD_ID == 'cd57b23fa4bbad65803d9788c01821ee':
         emit(w)
     emit(B(here(), 0x151d3d4))
     fs_put(0x151d3d0, [B(0x151d3d0, start)], 'VFR::updateInterval: its own override published for the host (state page target fps; 0 = original)')
+    # Render scale (state +0x10, float written by the loader: DM_RENDER_SCALE, 1.0 by default; independent of the frame step). The dynamic-resolution method (main+0x12666e4) keeps a
+    # scale in 0.8–1.0 rounded to 0.05 steps (+0x1218, main+0x1266818), or the game's forced 0.75 / 0.5 (+0x284 & 0x1800), in s8; from main+0x1266880 it applies s8: each view's
+    # scale (+0x28a0 / +0x28a4 = s8 × base width (+0x1214: 1600 docked, 1280 handheld) / output width), from which the scene buffers are sized each frame (main+0x106340c), the
+    # shader ratio uking_dynamic_resolution_ratio and the other readers (main+0xc3c3f4, an LOD check at main+0x14126b4). Setting s8 there keeps them all consistent (a multiply in the
+    # size function, TOTK's way, would leave the ratio and those readers at the old scale). The apply block runs only when the dynamic path has just recomputed the scale (+0x280 bit 4,
+    # set at main+0x1266830) or in a forced mode, else main+0x126686c skips it; with a factor it is taken every frame, as in the dynamic mode, so the factor holds with dynamic
+    # resolution off too. Factors above 1.0 are refused by the loader: the per-frame texture pool's size is unknown. x8, s0, s1 and the flags are dead at both sites
+    fs_site(0x1266880, '88ae40f9'); fs_site(0x126686c, struct.pack('<I', B(0x126686c, 0x1266950)).hex())
+    apply = here(); emit(ADRP(8, here(), FS_STATE_OFF))
+    for w in (0xbd401100,   # ldr s0,[x8,#0x10]      render scale
+              0x1e202008,   # fcmp s0,#0.0
+              0x540000ad,   # b.le orig (+5)         not set
+              0x1e2e1001,   # fmov s1,#1.0
+              0x1e212000,   # fcmp s0,s1
+              0x54000040,   # b.eq orig (+2)         1.0: the game's own scale
+              0x1e204008,   # fmov s8,s0             the host's scale
+              0xf940ae88):  # orig: ldr x8,[x20,#0x158]
+        emit(w)
+    emit(B(here(), 0x1266884))
+    fs_put(0x1266880, [B(0x1266880, apply)], '3D view scale = the host render scale (1.0 = the game\'s dynamic resolution)')
+    start = here(); emit(ADRP(8, here(), FS_STATE_OFF))
+    for w in (0xb9401108,   # ldr w8,[x8,#0x10]      render scale (float bits)
+              0x34000088,   # cbz w8,skip (+4)       not set
+              0x52091908,   # eor w8,w8,#0x3f800000
+              0x34000048):  # cbz w8,skip (+2)       1.0
+        emit(w)
+    emit(B(here(), 0x1266880)); emit(B(here(), 0x1266950))   # apply the host's scale; skip: the original branch
+    fs_put(0x126686c, [B(0x126686c, start)], 'scale apply block taken every frame when the host render scale is not 1.0')
 
 # The three existing native rule trampolines all use only the dead temporary w8 that is overwritten afterwards, and do not change the w0/stat return, sp or NZCV.
 # 6c6290 is after the original mode3 gate; the Blaze / reference count and data invalidation 6c62dc branches before it and the state update after it are untouched.
